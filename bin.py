@@ -1,3 +1,5 @@
+from pony.orm import *
+
 
 
 class Bin:
