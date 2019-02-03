@@ -4,7 +4,7 @@ import datetime
 
 
 class Bin(Base):
-    __tablename__='user'
+    __tablename__='users'
     id = Column(Integer,primary_key=True)
     type = Column(String(20),primary_key=True)
 
