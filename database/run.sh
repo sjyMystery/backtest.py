@@ -1,13 +1,20 @@
 docker_name=db_mysql
 password=123456
+expose_port=3399
+temp_path="/tmp/$docker_name"
 
-if [ ! -d "/var/lib/db_mysql" ]; then
-    mkdir /var/lib/db_mysql
+echo $temp_path
+
+if [ ! -d "$temp_path/" ]; then
+    mkdir $temp_path
 fi
 
-rm -rf /var/lib/db_mysql/gran.sql
-cp -f ./gran.sql /var/lib/db_mysql/gran.sql
+gran_path="$temp_path/gran.sql"
 
-docker run --name $docker_name -e MYSQL_ROOT_PASSWORD=123456 -v /var/lib/db_mysql:/var/lib/mysql -p 3306:3306 -d mysql
+rm -rf $gran_path
 
-docker exec $docker_name "mysql -u root -p $password -h 127.0.0.1  /var/lib/mysql/gran.sql"
+cp ./gran.sql $temp_path/gran.sql
+cp ./grant.sh $temp_path/grant.sh
+docker run -it --name $docker_name -e MYSQL_ROOT_PASSWORD=$password -v $temp_path:/fuck_script_saving_path -p $expose_port:3306 -d mysql
+
+docker exec -ti -w /fuck_script_saving_path $docker_name bash ./grant.sh
