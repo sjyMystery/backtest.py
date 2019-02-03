@@ -1,6 +1,6 @@
 from database import *
+import datetime
 
-Base = declarative_base()
 
 
 class Bin(Base):
@@ -19,7 +19,5 @@ class Bin(Base):
     bid_close = Column(Float)
 
     start_date = Column(DateTime,primary_key=True)
-    end_time = Column(DateTime,primary_key=True)
+    end_date = Column(DateTime,primary_key=True)
 
-
-new_bin = Bin(id=1,type='EURUSR',end_date=DateTime('2012/01/01 00:00:00.000'),start_date=DateTime('2012/01/01 00:00:00.000'))
