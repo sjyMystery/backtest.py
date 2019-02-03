@@ -1,4 +1,8 @@
 from database import *
+
+Base = declarative_base()
+
+
 class Bin(Base):
     __tablename__='user'
     id = Column(Integer,primary_key=True)
@@ -16,3 +20,6 @@ class Bin(Base):
 
     start_date = Column(DateTime,primary_key=True)
     end_time = Column(DateTime,primary_key=True)
+
+
+new_bin = Bin(id=1,type='EURUSR',end_date=DateTime('2012/01/01 00:00:00.000'),start_date=DateTime('2012/01/01 00:00:00.000'))
