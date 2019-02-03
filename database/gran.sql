@@ -1,0 +1,4 @@
+grant all PRIVILEGES on *.* to root@'%' WITH GRANT OPTION;
+ALTER user 'root'@'%' IDENTIFIED BY '123456' PASSWORD EXPIRE NEVER;
+ALTER user 'root'@'%' IDENTIFIED WITH mysql_native_password BY '123456';
+FLUSH PRIVILEGES;
