@@ -1,5 +1,5 @@
-docker_name = db_mysql
-password = 123456
+docker_name=db_mysql
+password=123456
 
 if [ ! -d "/var/lib/db_mysql" ]; then
     mkdir /var/lib/db_mysql
