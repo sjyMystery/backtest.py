@@ -1,6 +1,6 @@
 docker_name=db_mysql
 password=123456
-expose_port=3399
+expose_port=3306
 temp_path="/tmp/$docker_name"
 
 echo $temp_path
