@@ -1,4 +1,4 @@
-if [! -d "/var/lib/db_mysql"];then
+if [ ! -d "/var/lib/db_mysql" ]; then
     mkdir /var/lib/db_mysql
 fi
 
