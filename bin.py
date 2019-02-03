@@ -30,6 +30,6 @@ class Bin(Base):
             type: 种类
         '''
         session = DBSession()
-        result = session.query(Bin).filter(Bin.type == type).filter(Bin.start_date>=from_date).fitler(Bin.end_date<=to_date).all()
+        result = session.query(Bin).filter(Bin.type == type).filter(Bin.start_date>=from_date).filter(Bin.end_date<=to_date).all()
         session.close()
         return result
