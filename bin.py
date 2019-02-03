@@ -4,7 +4,7 @@ import datetime
 
 
 class Bin(Base):
-    __tablename__='users'
+    __tablename__='bins'
     id = Column(Integer,primary_key=True)
     type = Column(String(20))
 
@@ -22,7 +22,7 @@ class Bin(Base):
     end_date = Column(DateTime)
 
     @staticmethod
-    def select(type,to_date=datetime.datetime(2019,1,1,0,0,0),from_date=datetime.datetime(2012,1,1,0,0,0)):
+    def fetch(type,to_date=datetime.datetime(2019,1,1,0,0,0),from_date=datetime.datetime(2012,1,1,0,0,0)):
         '''
             选择一段时间的交易记录，并且返回
             from_date: 开始时间
@@ -30,6 +30,9 @@ class Bin(Base):
             type: 种类
         '''
         session = DBSession()
-        result = session.query(Bin).filter(Bin.type == type).filter(Bin.start_date>=from_date).filter(Bin.end_date<=to_date).count()
+        result = session.query(Bin).filter(Bin.type == type).filter(Bin.start_date>=from_date).filter(Bin.end_date<=to_date).all()
         session.close()
         return result
+
+    
+    
