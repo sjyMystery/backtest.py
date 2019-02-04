@@ -1,31 +1,40 @@
 from account import Account 
 from pandas import DataFrame
-from cost_functions import *
+import numpy as np
 
 import tensorflow as tf
 
 
 class Context:
-    def __init__(self,account):
+    def __init__(self,account,histories,current_date=None):
         self.account = account
+        self.histories = histories
+        self.current_date = current_date
+    def slice_df(self,start,end):
+        sliced = self.histories[start:end]
+        [date,history] = list(zip(*sliced))
+        return DataFrame(data=history,index=date)
 
 class TradeEngine:
     
     trades = []
-    cost_functions = costs
-    history_status = []
 
-    def __init__(self,strategy,historybins,initialCurrency,trade_cost=0.00025,cost_functions_list=[]):
+    history_status = DataFrame(columns=["ask_low","ask_high","ask_open","ask_close",\
+        "bid_low","bid_high","bid_open","bid_close",
+        "currency","amounts","date"])
+
+    def __init__(self,strategy,historybins,initialCurrency,trade_cost=0.00025):
         '''
             startegy: 策略对象实例。
             historybins: tf.Tensor的一个实例，它的形状为(bin中时间序列总长度）
             cost_function_list
         '''
         self.account = Account(initialCurrency,trade_cost)
-        self.ctx = Context(self.account)
+        self.histories = []
+        self.ctx = Context(self.account,self.histories)
         self.strategy = strategy
         self.historybins = historybins
-        self.cost_functions += cost_functions_list
+
 
     def judge_trade(self,trade,current_bin,next_bin):
         '''
@@ -36,7 +45,7 @@ class TradeEngine:
                 return trade.price >= current_bin.ask_low \
                     and trade.price < next_bin.ask_close 
             elif trade.des == 'out':
-                return trade.price <= current_bin.bid_heigh \
+                return trade.price <= current_bin.bid_high \
                     and trade.price > next_bin.bid_close
                     # 卖出的时候，要求被卖的数量要多一些
 
@@ -85,7 +94,7 @@ class TradeEngine:
                 self.account.trade_success(trade)
                 self.strategy.handle_trade(trade,1)
             else:
-                if current_bin.end_date >= trade.expire_date:
+                if trade.expire_date is not None and current_bin.end_date >= trade.expire_date:
                     self.account.trade_failed(trade)
                     self.strategy.handle_trade(trade,0)
                 else:
@@ -95,60 +104,50 @@ class TradeEngine:
         return new_trades
 
     def run_backtest(self):
-
-
         print('backtest start')
 
         bin_length = len(self.historybins)
+
+        # 清除所有历史记录
+        self.histories.clear()
+
+        # 一开始有一个历史……
+        self.histories+=[self.make_status(self.historybins[0])]
 
         for i in range(bin_length-1):
             current_bin = self.historybins[i]
             next_bin = self.historybins[i+1]
             
+            self.ctx.current_date = current_bin.end_date
             requests = self.strategy.make_trade(current_bin,self.ctx)
 
             self.validate_requested_trades(requests)
 
             self.trades = self.handle_requested_trades(current_bin,next_bin)
 
-            self.save_status(current_bin.end_date)
 
-            if i % 1000 == 0 :
-                print(f'{i} bin done. {current_bin.end_date}')
+            # update status
+            self.histories+=[self.make_status(next_bin)]
 
+            if i % 10000 == 0 :
+                print(f'{i}/{bin_length-1} bin done. End Date:{current_bin.end_date}')
 
-        return self.calculate_cost()
+        a= list(zip(*self.histories))
 
-    def save_status(self,date):
-        self.history_status.append({
-          "date":date,
-          "currency":self.account.currency+self.account.frozen,
-          "amounts":self.account.amounts
+        self.history_status = DataFrame(a[1],index=a[0])
+
+        return self.history_status
+
+    def make_status(self,bin):
+        return (bin.start_date,{
+            "ask_low":bin.ask_low,
+            "ask_high":bin.ask_high,
+            "ask_open":bin.ask_open,
+            "ask_close":bin.ask_close,
+            "bid_low":bin.bid_low,
+            "bid_high":bin.bid_high,
+            "bid_open":bin.bid_open,
+            "bid_close":bin.bid_close ,
+            "currency":self.account.currency,
+            "amounts":self.account.amounts,
         })
-    
-    def calculate_cost(self):
-
-        bins = self.historybins
-        
-        # 我们用后一段时间的数据来和这个时刻的状态做对应
-
-        print('Converting The Result into DataFrame.')
-
-        converted_status = DataFrame(data=[{
-            "ask_low":bins[i+1].ask_low,
-            "ask_high":bins[i+1].ask_high,
-            "ask_open":bins[i+1].ask_open,
-            "ask_close":bins[i+1].ask_close,
-            "bid_low":bins[i+1].bid_low,
-            "bid_high":bins[i+1].bid_high,
-            "bid_open":bins[i+1].bid_open,
-            "bid_close":bins[i+1].bid_close ,
-            "currency":self.history_status[i]["currency"],
-            "amounts":self.history_status[i]["amounts"]
-        } for i in range(len(self.historybins)-1)] )
-
-        print('Converting accomplish,start to calculate costs')
-
-        result_lists = [cost(history_status=converted_status) for cost in self.cost_functions]
-
-        return result_lists

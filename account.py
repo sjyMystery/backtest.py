@@ -9,6 +9,12 @@ class Account:
         self.trade_cost = trade_cost
         self.frozen = 0.0
 
+    def max_in(self,price):
+        return self.currency / ((1+self.trade_cost)*price)
+        
+    def max_out(self):
+        return self.amounts
+
     def trade_avaliable(self,trade):
         '''
             判断账上的资金是否足以挂单，即这个单子是否本身是有效的

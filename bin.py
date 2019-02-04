@@ -29,8 +29,8 @@ class Bin(Base):
             to_date: 结束时间
             type: 种类
         '''
-        session = DBSession()   
-        result = session.query(Bin).filter(Bin.type ==type,Bin.start_date>=from_date,Bin.end_date<=to_date).all()
+        session = DBSession()
+        result = session.query(Bin).filter(and_(Bin.type ==type,Bin.start_date>=from_date,Bin.end_date<=to_date)).all()
         session.close()
         return result
 

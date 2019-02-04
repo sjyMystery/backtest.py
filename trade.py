@@ -1,7 +1,7 @@
 
 
 class Trade:
-    def __init__(self,type,des,amount=None,price=None):
+    def __init__(self,type,des,amounts=0.0,price=None,expire_date=None):
         '''
             type 表示交易委托的种类
                 limit 限价委托
@@ -12,6 +12,7 @@ class Trade:
         '''
         self.type=type
         self.des = des
-        self.amount= amount
+        self.amounts= amounts
         self.price = price
+        self.expire_date = expire_date
         pass
