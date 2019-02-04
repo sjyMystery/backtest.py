@@ -10,22 +10,18 @@ class Context:
         self.account = account
 
 class TradeEngine:
-
-    trades=[]
-
+    
+    trades = []
     cost_functions = costs
+    history_status = []
 
-    history_status=DataFrame(columns=['current_date','currency','amounts'])
-
-
-    def __init__(self,strategy,historybins,initialCurrency,cost_functions_list=[]):
+    def __init__(self,strategy,historybins,initialCurrency,trade_cost=0.00025,cost_functions_list=[]):
         '''
             startegy: 策略对象实例。
             historybins: tf.Tensor的一个实例，它的形状为(bin中时间序列总长度）
-
             cost_function_list
         '''
-        self.account = Account(initialCurrency)
+        self.account = Account(initialCurrency,trade_cost)
         self.ctx = Context(self.account)
         self.strategy = strategy
         self.historybins = historybins
@@ -43,9 +39,10 @@ class TradeEngine:
                 return trade.price <= current_bin.bid_heigh \
                     and trade.price > next_bin.bid_close
                     # 卖出的时候，要求被卖的数量要多一些
+
         elif trade.type == 'market':
             return True
-        else :
+        else:
             return False
 
 
@@ -99,6 +96,9 @@ class TradeEngine:
 
     def run_backtest(self):
 
+
+        print('backtest start')
+
         bin_length = len(self.historybins)
 
         for i in range(bin_length-1):
@@ -113,28 +113,42 @@ class TradeEngine:
 
             self.save_status(current_bin.end_date)
 
+            if i % 1000 == 0 :
+                print(f'{i} bin done. {current_bin.end_date}')
+
 
         return self.calculate_cost()
 
     def save_status(self,date):
         self.history_status.append({
           "date":date,
-          "currency":self.account.currency,
+          "currency":self.account.currency+self.account.frozen,
           "amounts":self.account.amounts
-        },ignore_index=True)
+        })
     
     def calculate_cost(self):
 
+        bins = self.historybins
+        
+        # 我们用后一段时间的数据来和这个时刻的状态做对应
 
-        with tf.variable_scope('calculate_cost'):
-        
-            history_status = tf.Variable(name='history_status')
-            history_bins = tf.Variable(name='history_bins')
-        
-        with tf.Session() as sess:
-            result_lists=sess.run([cost(history_status=history_status,bins=history_bin) for cost in self.cost_functions],{
-                history_bin:self.historybins,
-                history_status:self.history_status
-            })
-        
+        print('Converting The Result into DataFrame.')
+
+        converted_status = DataFrame(data=[{
+            "ask_low":bins[i+1].ask_low,
+            "ask_high":bins[i+1].ask_high,
+            "ask_open":bins[i+1].ask_open,
+            "ask_close":bins[i+1].ask_close,
+            "bid_low":bins[i+1].bid_low,
+            "bid_high":bins[i+1].bid_high,
+            "bid_open":bins[i+1].bid_open,
+            "bid_close":bins[i+1].bid_close ,
+            "currency":self.history_status[i]["currency"],
+            "amounts":self.history_status[i]["amounts"]
+        } for i in range(len(self.historybins)-1)] )
+
+        print('Converting accomplish,start to calculate costs')
+
+        result_lists = [cost(history_status=converted_status) for cost in self.cost_functions]
+
         return result_lists

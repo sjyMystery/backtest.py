@@ -3,8 +3,11 @@ from database import *
 from engine import TradeEngine
 import datetime
 
+print('start fetching data...')
 
-result = Bin.fetch('AUDCAD',from_date=datetime.datetime(2012,1,1,0,0,0),to_date=datetime.datetime(2012,1,5,0,0,0))
+result = Bin.fetch('AUDCAD',from_date=datetime.datetime(2012,1,1,0,0,0),to_date=datetime.datetime(2018,1,5,0,0,0))
+
+print('load complete.')
 
 class BasicStrategy:
     def __init__(self):
@@ -16,7 +19,6 @@ class BasicStrategy:
             ctx: 交易的上下文信息（包含过去的一些信息）
             returns: 期望执行的交易列表，应该是一个Trade对象的列表。
         '''
-        print(bin.ask_low)
 
         return []
     def valid_callback(self,valid,invalid):
