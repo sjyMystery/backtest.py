@@ -1,5 +1,10 @@
 from account import Account 
 from pandas import DataFrame
+from cost_functions import *
+
+import tensorflow as tf
+
+
 class Context:
     def __init__(self,account):
         self.account = account
@@ -7,17 +12,24 @@ class Context:
 class TradeEngine:
 
     trades=[]
+
+    cost_functions = costs
+
     history_status=DataFrame(columns=['current_date','currency','amounts'])
-    def __init__(self,strategy,historybins,initialCurrency):
+
+
+    def __init__(self,strategy,historybins,initialCurrency,cost_functions_list=[]):
         '''
             startegy: 策略对象实例。
-            historybins: tf.Tensor的一个实例，它的形状为(bin中时间序列总长度)
+            historybins: tf.Tensor的一个实例，它的形状为(bin中时间序列总长度）
+
+            cost_function_list
         '''
         self.account = Account(initialCurrency)
         self.ctx = Context(self.account)
         self.strategy = strategy
         self.historybins = historybins
-
+        self.cost_functions += cost_functions_list
 
     def judge_trade(self,trade,current_bin,next_bin):
         '''
@@ -74,11 +86,14 @@ class TradeEngine:
             successful = self.judge_trade(trade,current_bin,next_bin)
             if successful:
                 self.account.trade_success(trade)
+                self.strategy.handle_trade(trade,1)
             else:
                 if current_bin.end_date >= trade.expire_date:
                     self.account.trade_failed(trade)
+                    self.strategy.handle_trade(trade,0)
                 else:
                     new_trades.append(trade)
+                    self.strategy.handle_trade(trade,-1)
         
         return new_trades
 
@@ -90,7 +105,7 @@ class TradeEngine:
             current_bin = self.historybins[i]
             next_bin = self.historybins[i+1]
             
-            requests = self.strategy.make_trade(current_bin)
+            requests = self.strategy.make_trade(current_bin,self.ctx)
 
             self.validate_requested_trades(requests)
 
@@ -99,13 +114,27 @@ class TradeEngine:
             self.save_status(current_bin.end_date)
 
 
+        return self.calculate_cost()
 
     def save_status(self,date):
         self.history_status.append({
           "date":date,
           "currency":self.account.currency,
           "amounts":self.account.amounts
-        })
+        },ignore_index=True)
     
     def calculate_cost(self):
-        pass
+
+
+        with tf.variable_scope('calculate_cost'):
+        
+            history_status = tf.Variable(name='history_status')
+            history_bins = tf.Variable(name='history_bins')
+        
+        with tf.Session() as sess:
+            result_lists=sess.run([cost(history_status=history_status,bins=history_bin) for cost in self.cost_functions],{
+                history_bin:self.historybins,
+                history_status:self.history_status
+            })
+        
+        return result_lists
