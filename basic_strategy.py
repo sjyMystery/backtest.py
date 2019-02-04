@@ -15,6 +15,10 @@ class BasicStratgy:
             returns: 期望执行的交易列表，应该是一个Trade对象的列表。
         '''
         pass
+    def valid_callback(self,valid,invalid):
+        '''
+           这里会告诉你哪些单子是有效被挂上了的
+        '''
     def handle_result(self,result,ctx):
         '''
             result: 交易的结果，按照make_decicsion返回的顺序返回.

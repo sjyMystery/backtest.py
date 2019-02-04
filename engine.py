@@ -1,40 +1,13 @@
-import tensorflow as tf
-from tensorflow.contrib import autograph
-
-
-class Account:
-    '''
-        存储了用户所持有种类和商品的数量等等
-    '''
-    def __init__(self,currency):
-        self.amounts = tf.Variable(0,dtype=tf.float32)
-        self.currency = tf.Variable(currency,dtype=tf.float32)
-
-    @autograph.convert()
-    def trade(self,trade):
-        price = trade.price
-        des = trade.des
-        amount = trade.amount
-        
-        if(trade.type == 'limit'):
-            if(des == 'in'):
-                self.currency-=price*amount
-                self.amounts+=amount
-            elif(des == 'to'):
-                self.currency+=price*amount
-                self.amounts-=amount
-        elif(trade.type == 'market'):
-            '''
-                市价委托暂时没有实现
-            '''
-            pass
-        
+from account import Account 
+from pandas import DataFrame
 class Context:
-    def __init__(self,account,instruments):
+    def __init__(self,account):
         self.account = account
-        self.instruments = instruments
 
-class RunGraphBuilder:
+class TradeEngine:
+
+    trades=[]
+    history_status=DataFrame(columns=['current_date','currency','amounts'])
     def __init__(self,strategy,historybins,initialCurrency):
         '''
             startegy: 策略对象实例。
@@ -46,7 +19,6 @@ class RunGraphBuilder:
         self.historybins = historybins
 
 
-    @autograph.convert()
     def judge_trade(self,trade,current_bin,next_bin):
         '''
             计算是否达到成交条件
@@ -54,51 +26,86 @@ class RunGraphBuilder:
         if(trade.type == 'limit'):
             if trade.des == 'in':
                 return trade.price >= current_bin.ask_low \
-                    and trade.price < next_bin.ask_close \
-                    and self.account.currency >= trade.price*trade.amount
+                    and trade.price < next_bin.ask_close 
             elif trade.des == 'out':
                 return trade.price <= current_bin.bid_heigh \
-                    and trade.price > next_bin.bid_close \
-                    and self.account.amounts >= trade.amount
+                    and trade.price > next_bin.bid_close
                     # 卖出的时候，要求被卖的数量要多一些
         elif trade.type == 'market':
             return True
         else :
             return False
 
-    @autograph.convert()
-    def run_bin(self,current_bin,next_bin):
+
+
+
+    def push_trade(self,trade):
         '''
-            对于每一个时刻进行计算，得到下一时刻的数据
-
-            current_bins和next_bins均为以instrument.name为键的一个字典
+            交易入列表，并且冻结相关资源余额
         '''
+        self.account.trade_trust(trade)
+        self.trades.append(trade)
 
-        trades = self.strategy.make_trade(current_bin,self.ctx)
+    def validate_requested_trades(self,request_trades):
+        '''
+            处理策略给出的交易
+            判断哪些是合法的交易
+            哪些不是合法的交易
+            再将交易入队列
+            并且回调
+        '''
+        valid_trades = []
+        invalid_trades = []
 
-
-        bin_ops = []
-
-
-        for trade in trades:
-            tradable = self.judge_trade(trade,current_bin,next_bin)
-            if(tradable):
-                bin_ops.append(self.account.trade(trade))
-                bin_ops.append(self.strategy.handle_result(True,self.ctx))
+        for trade in request_trades:
+            if self.account.trade_avaliable(trade):
+                valid_trades.append(trade)
+                self.push_trade(trade=trade)
             else:
-                 bin_ops.append(self.strategy.handle_result(False,self.ctx))
-        return bin_ops
+                invalid_trades.append(trade)
+
+        self.strategy.valid_callback(valid_trades,invalid_trades)
+
+    def handle_requested_trades(self,current_bin,next_bin):
+
+        new_trades = []
+
+        for trade in self.trades:
+            successful = self.judge_trade(trade,current_bin,next_bin)
+            if successful:
+                self.account.trade_success(trade)
+            else:
+                if current_bin.end_date >= trade.expire_date:
+                    self.account.trade_failed(trade)
+                else:
+                    new_trades.append(trade)
+        
+        return new_trades
+
+    def run_backtest(self):
+
+        bin_length = len(self.historybins)
+
+        for i in range(bin_length-1):
+            current_bin = self.historybins[i]
+            next_bin = self.historybins[i+1]
+            
+            requests = self.strategy.make_trade(current_bin)
+
+            self.validate_requested_trades(requests)
+
+            self.trades = self.handle_requested_trades(current_bin,next_bin)
+
+            self.save_status(current_bin.end_date)
 
 
-    @autograph.convert()
-    def make_backtest_graph(self,all_bins):
-        length = len(all_bins)
-        bin_ops = []
-        autograph.set_element_type(bin_ops,tf.placeholder)
-        for i in range(length):
-            if i==length-2:
-                break
-            bin_ops += self.run_bin(all_bins[i],all_bins[i+1])
 
-        return autograph.stack(bin_ops)
-
+    def save_status(self,date):
+        self.history_status.append({
+          "date":date,
+          "currency":self.account.currency,
+          "amounts":self.account.amounts
+        })
+    
+    def calculate_cost(self):
+        pass
