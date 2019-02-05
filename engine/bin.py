@@ -6,7 +6,7 @@ import datetime
 class Bin(Base):
     __tablename__='bins'
     id = Column(Integer,primary_key=True)
-    type = Column(String(20))
+    type = Column(CHAR(45))
 
     ask_open = Column(Float)
     ask_low = Column(Float)
@@ -30,9 +30,25 @@ class Bin(Base):
             type: 种类
         '''
         session = DBSession()
-        result = session.query(Bin).filter(and_(Bin.type ==type,Bin.start_date>=from_date,Bin.end_date<=to_date)).all()
+        result = session.query(Bin).filter(and_(\
+            cast(Bin.type,String) == cast(type,String),\
+            func.timestamp(Bin.start_date)>=func.timestamp(from_date),\
+            func.timestamp(Bin.end_date) <= func.timestamp(to_date))).all()
         session.close()
         return result
 
-    
-    
+    def serialize():
+        return {
+            "ask_open":self.ask_open,
+            "ask_low":self.ask_low,
+            "ask_high":self.ask_high,
+            "ask_close":self.ask_close,
+            "bid_open":self.bid_open,
+            "bid_low":self.bid_low,
+            "bid_high":self.bid_high,
+            "bid_close":self.bid_close,
+            "type":self.type,
+            "start_date":self.start_date,
+            "end_date":self.end_date,
+            "id":self.id
+        }

@@ -6,4 +6,4 @@ def drawdown(history_status,calculated,ctx):
     ask_low = np.array(history_status["ask_low"])
     total = currency + amounts * ask_low * (1-ctx["trade_cost"])
     first = total[0]
-    return np.max(np.abs((total - first) / first))
+    return np.max((np.zeros(total.shape)-total +first) / first)
