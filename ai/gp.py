@@ -6,99 +6,82 @@ import tensorflow as tf
 np.random.seed(1)
 tf.set_random_seed(1)
 
-
-class PolicyGradient:
-    def __init__(
-            self,
-            n_actions,
-            n_features,
-            learning_rate=0.01,
-            reward_decay=0.95,
-            output_graph=False,
-    ):
-        self.n_actions = n_actions
-        self.n_features = n_features
-        self.lr = learning_rate
-        self.gamma = reward_decay
-
-        self.ep_obs, self.ep_as, self.ep_rs = [], [], []
-
-        self._build_net()
-
+class DDPG(object):
+    def __init__(self, a_dim, s_dim, a_bound,tau=0.01,memory_cap=320,batch_size=32,gamma=0.9,lr_a=0.001,lr_c=0.003):
+        self.memory = np.zeros((memory_cap, s_dim * 2 + a_dim + 1), dtype=np.float32)
+        self.pointer = 0
         self.sess = tf.Session()
 
-        if output_graph:
-            # $ tensorboard --logdir=logs
-            # http://0.0.0.0:6006/
-            # tf.train.SummaryWriter soon be deprecated, use following
-            tf.summary.FileWriter("logs/", self.sess.graph)
+        self.gamma = gamma
+        self.lr_a = lr_a
+        self.lr_c = lr_c
+        self.batch_size = batch_size
+        self.memory_cap = memory_cap
+        self.tau = tau
+
+        self.a_dim, self.s_dim, self.a_bound = a_dim, s_dim, a_bound,
+        self.S = tf.placeholder(tf.float32, [None, s_dim], 's')
+        self.S_ = tf.placeholder(tf.float32, [None, s_dim], 's_')
+        self.R = tf.placeholder(tf.float32, [None, 1], 'r')
+
+        self.a = self._build_a(self.S,)
+        q = self._build_c(self.S, self.a, )
+        a_params = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='Actor')
+        c_params = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='Critic')
+        ema = tf.train.ExponentialMovingAverage(decay=1 - self.tau)          # soft replacement
+
+        def ema_getter(getter, name, *args, **kwargs):
+            return ema.average(getter(name, *args, **kwargs))
+
+        target_update = [ema.apply(a_params), ema.apply(c_params)]      # soft update operation
+        a_ = self._build_a(self.S_, reuse=True, custom_getter=ema_getter)   # replaced target parameters
+        q_ = self._build_c(self.S_, a_, reuse=True, custom_getter=ema_getter)
+
+        a_loss = - tf.reduce_mean(q)  # maximize the q
+        self.atrain = tf.train.AdamOptimizer(self.lr_a).minimize(a_loss, var_list=a_params)
+
+        with tf.control_dependencies(target_update):    # soft replacement happened at here
+            q_target = self.R + self.gamma * q_
+            td_error = tf.losses.mean_squared_error(labels=q_target, predictions=q)
+            self.ctrain = tf.train.AdamOptimizer(self.lr_c).minimize(td_error, var_list=c_params)
 
         self.sess.run(tf.global_variables_initializer())
 
-    def _build_net(self):
-        with tf.name_scope('inputs'):
-            self.tf_obs = tf.placeholder(tf.float32, [None, self.n_features], name="observations")
-            self.tf_acts = tf.placeholder(tf.int32, [None, ], name="actions_num")
-            self.tf_bounds = tf.placeholder(tf.float32, [None,], name="actions_bound")
-            self.tf_vt = tf.placeholder(tf.float32, [None, ], name="actions_value")
-        # fc1
-        layer_0 = tf.layers.dense(
-            inputs=self.tf_obs,
-            units=64,
-            activation=tf.nn.tanh,  # tanh activation
-            name='fc1'
-        )
-        # fc2
-        layer_1 = tf.layers.dense(
-            inputs=layer_0,
-            units=self.n_actions,
-            activation=tf.nn.sigmoid,
-            name='fc2')
-
-        
-        self.act = tf.math.multiply(layer_1,self.tf_bounds,name="act_counts")
-    
-        with tf.name_scope('loss'):
-            # to maximize total reward (log_p * R) is to minimize -(log_p * R), and the tf only have minimize(loss)
-            neg_log_prob = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=layer_1, labels=self.tf_acts)   # this is negative log of chosen action
-            # or in this way:
-            # neg_log_prob = tf.reduce_sum(-tf.log(self.all_act_prob)*tf.one_hot(self.tf_acts, self.n_actions), axis=1)
-            loss = tf.reduce_mean(neg_log_prob * self.tf_vt)  # reward guided loss
-
-        with tf.name_scope('train'):
-            self.train_op = tf.train.AdamOptimizer(self.lr).minimize(loss)
-
-    def choose_action(self, observation,action_bounds):
-        act_weights = self.sess.run(self.act, feed_dict={self.tf_obs: observation[np.newaxis, :],self.tf_bounds:action_bounds})
-        return act_weights
-    def store_transition(self, s, a, r):
-        self.ep_obs.append(s)
-        self.ep_as.append(a)
-        self.ep_rs.append(r)
+    def choose_action(self, s):
+        return self.sess.run(self.a, {self.S: s[np.newaxis, :]})[0]
 
     def learn(self):
-        # discount and normalize episode reward
-        discounted_ep_rs_norm = self._discount_and_norm_rewards()
+        indices = np.random.choice(self.memory_cap, size=self.batch_size)
+        bt = self.memory[indices, :]
+        bs = bt[:, :self.s_dim]
+        ba = bt[:, self.s_dim: self.s_dim + self.a_dim]
+        br = bt[:, -self.s_dim - 1: -self.s_dim]
+        bs_ = bt[:, -self.s_dim:]
 
-        # train on episode
-        self.sess.run(self.train_op, feed_dict={
-             self.tf_obs: np.vstack(self.ep_obs),  # shape=[None, n_obs]
-             self.tf_acts: np.array(self.ep_as),  # shape=[None, ]
-             self.tf_vt: discounted_ep_rs_norm,  # shape=[None, ]
-        })
+        self.sess.run(self.atrain, {self.S: bs})
+        self.sess.run(self.ctrain, {self.S: bs, self.a: ba, self.R: br, self.S_: bs_})
 
-        self.ep_obs, self.ep_as, self.ep_rs = [], [], []    # empty episode data
-        return discounted_ep_rs_norm
+    def store_transition(self, s, a, r, s_):
+        transition = np.hstack((s, a, [r], s_))
+        index = self.pointer % self.memory_cap  # replace the old memory with new memory
+        self.memory[index, :] = transition
+        self.pointer += 1
 
-    def _discount_and_norm_rewards(self):
-        # discount episode rewards
-        discounted_ep_rs = np.zeros_like(self.ep_rs)
-        running_add = 0
-        for t in reversed(range(0, len(self.ep_rs))):
-            running_add = running_add * self.gamma + self.ep_rs[t]
-            discounted_ep_rs[t] = running_add
+    def _build_a(self, s, reuse=None, custom_getter=None):
+        trainable = True if reuse is None else False
+        with tf.variable_scope('Actor', reuse=reuse, custom_getter=custom_getter):
+            net = tf.layers.dense(s, 30, activation=tf.nn.relu, name='l1', trainable=trainable)
+            a = tf.layers.dense(net, 10 , activation=tf.nn.tanh, name='a', trainable=trainable)
+            b = tf.layers.dense(a, self.a_dim ,activation=tf.nn.sigmoid, name='b', trainable=trainable)
+            return tf.multiply(b, self.a_bound, name='scaled_a')
 
-        # normalize episode rewards
-        discounted_ep_rs -= np.mean(discounted_ep_rs)
-        discounted_ep_rs /= np.std(discounted_ep_rs)
-        return discounted_ep_rs
+    def _build_c(self, s, a, reuse=None, custom_getter=None):
+        trainable = True if reuse is None else False
+        with tf.variable_scope('Critic', reuse=reuse, custom_getter=custom_getter):
+            n_l1 = 30
+            w1_s = tf.get_variable('w1_s', [self.s_dim, n_l1], trainable=trainable)
+            w1_a = tf.get_variable('w1_a', [self.a_dim, n_l1], trainable=trainable)
+            b1 = tf.get_variable('b1', [1, n_l1], trainable=trainable)
+            net = tf.nn.relu(tf.matmul(s, w1_s) + tf.matmul(a, w1_a) + b1)
+            return tf.layers.dense(net, 1, trainable=trainable)  # Q(s,a)
+

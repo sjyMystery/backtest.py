@@ -20,6 +20,7 @@ class Trade:
         self.made_date = None
         self.trust_date = trust_date
 
+        self.amounts = int(self.amounts / 1000) * 1000
 
     def to_trust(self):
         return self.account.to_trust_trade(self)
@@ -63,13 +64,24 @@ class Trade:
             如果已经到期，瞬间判定为交易失败
             返回是否到期
         '''
-        if(self.trust_date + self.expire_delta >=date):
+        if date is not None and self.trust_date + self.expire_delta <=date:
             self.status = 'failed'
             self.made_date = date
             self.account.trade_failed(self)
             return True
         else:
             return False
+    def to_dict(self):
+        return {
+            "type":self.type,
+            "des": self.des,
+            "amounts": self.amounts,
+            "price":self.price,
+            "status":self.status,
+            "trust_date":self.trust_date,
+            "expire_date":self.trust_date+self.expire_delta,
+            "made_date":self.made_date,
+        }
     def __repr__(self):
         return '[%s at %s-type:%s-des:%s]\tamounts:%.3f price:%.3f trust:%s expire:%s ' %\
             (self.status,self.made_date,self.type,self.des,self.amounts,self.price,self.trust_date,self.expire_delta)

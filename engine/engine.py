@@ -43,6 +43,7 @@ class TradeEngine:
         self.strategy = strategy
         self.historybins = historybins
 
+
     def reset(self):
         self.pending_trades.clear()
         # 清除所有历史记录
@@ -120,13 +121,24 @@ class TradeEngine:
 
             self.strategy.make_trade(current_bin,self.trust_trade_generator(self.ctx.current_date),self.ctx)
 
+
+    #        print(f'[B][{next_bin.start_date}]{self.ctx.account}')
+
             self.pending_trades = self.handle_trusted_trades(current_bin,next_bin)
+
+          #  print(f'[A][{next_bin.end_date}]{self.ctx.account}')
 
             status = self.make_status(next_bin)
             # update status
             self.histories+=[status]
 
-            self.strategy.after_trade(status,self.ctx)
+            self.ctx.current_date = next_bin.end_date
+
+            self.strategy.after_trade(next_bin,self.ctx)
+
+
+            if(i%10000 is 0):
+                print(f'{i+1}/{bin_length} done.')
 
         a= list(zip(*self.histories))
 
@@ -134,7 +146,7 @@ class TradeEngine:
         
         self.strategy.after_run(self.history_status,self.ctx)
 
-        return self.history_status
+        return self.history_status,self.ctx
 
     def make_status(self,bin):
         return (bin.start_date,{
@@ -147,7 +159,8 @@ class TradeEngine:
             "bid_open":bin.bid_open,
             "bid_close":bin.bid_close ,
             "currency":self.account.currency,
-            "frozen_currency":self.account.frozen_amo,
+            "frozen_currency":self.account.frozen_cur,
             "amounts":self.account.amounts,
             "frozen_amounts":self.account.frozen_amo,
+            "assets":self.account.assets(bin.bid_close),
         })

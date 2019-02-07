@@ -9,7 +9,10 @@ class Account:
         self.trade_cost = trade_cost
         self.frozen_cur = 0.0
         self.frozen_amo = 0.0
+        self.start_cur = currency
 
+    def assets(self,price):
+        return self.currency + self.amounts * (1-self.trade_cost) * price
     def max_in(self,price):
         return self.avaliable_cur() / ((1+self.trade_cost)*price)
         
@@ -115,7 +118,7 @@ class Account:
             elif(des == 'out'):
                 self.frozen_amo -= amounts
 
-                if(self.frozen_amo):
+                if(self.frozen_amo <= 1e-3):
                     self.frozen_amo =0
 
         elif(trade.type == 'market'):
