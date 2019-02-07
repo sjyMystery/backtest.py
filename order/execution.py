@@ -1,15 +1,18 @@
 from datetime import datetime
 from order.commission import Commission
 from order.order import Order
+
+
 class Execution:
-    def __init__(self, price:float, quantity:float, commission:Commission, dateTime:datetime):
+    def __init__(self, price: float, quantity: float, commission: Commission, dateTime: datetime):
         self.__price = price
         self.__quantity = quantity
         self.__commission = commission
         self.__dateTime = dateTime
 
     def __str__(self):
-        return "%s - Price: %s - Amount: %s - Fee: %s" % (self.__dateTime, self.__price, self.__quantity, self.__commission)
+        return "%s - Price: %s - Amount: %s - Fee: %s" % (
+            self.__dateTime, self.__price, self.__quantity, self.__commission)
 
     @property
     def price(self):
@@ -30,11 +33,10 @@ class Execution:
         """Returns the commission applied."""
         return self.__commission
 
-    @property
-    def calculate_commision(self,order:Order):
-        return self.commission.calculate(order,self.price,self.quantity)
+    def calculate_commission(self, order: Order):
+        return self.commission.calculate(order, self.price, self.quantity)
 
     @property
-    def dateTime(self):
-        """Returns the :class:`datatime.datetime` when the order was executed."""
+    def datetime(self):
+        """Returns the :class:`datetime.datetime` when the order was executed."""
         return self.__dateTime
