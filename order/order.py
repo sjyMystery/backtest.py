@@ -7,6 +7,23 @@ from datetime import datetime
 
 import functools
 
+import six
+import abc
+
+
+@six.add_metaclass(abc.ABCMeta)
+class InstrumentTraits(object):
+
+    # Return the floating point value number rounded.
+    @abc.abstractmethod
+    def roundQuantity(self, quantity):
+        raise NotImplementedError()
+
+
+class IntegerTraits(InstrumentTraits):
+    def roundQuantity(self, quantity):
+        return int(quantity)
+
 
 class Order:
     def __init__(self, type_: Type, action: Action, instrument, quantity: float, instrument_traits):
@@ -174,3 +191,91 @@ class Order:
     @property
     def is_initial(self):
         return self.state == State.INITIAL
+
+
+class MarketOrder(Order):
+    """
+        Base Class for market orders
+    """
+
+    def __init__(self, action, instrument, quantity, on_close, instrument_traits):
+        super(MarketOrder, self).__init__(Type.MARKET, action, instrument, quantity, instrument_traits)
+        self.__onClose = on_close
+
+    @property
+    def fill_on_close(self):
+        return self.__onClose
+
+
+class LimitOrder(Order):
+    def __init__(self, action, instrument, limit_price, quantity, instrument_traits):
+        super(LimitOrder, self).__init__(Type.LIMIT, action, instrument, quantity, instrument_traits)
+        self.__limitPrice = limit_price
+
+    @property
+    def price(self):
+        """Returns the limit price."""
+        return self.__limitPrice
+
+
+class StopOrder(Order):
+    """Base class for stop orders.
+
+    .. note::
+
+        This is a base class and should not be used directly.
+    """
+
+    def __init__(self, action, instrument, price, quantity, instrument_traits):
+        super(StopOrder, self).__init__(Type.STOP, action, instrument, quantity, instrument_traits)
+
+        self.__stopPrice = price
+
+    @property
+    def price(self):
+        """Returns the stop price."""
+        return self.__stopPrice
+
+
+class StopLimitOrder(Order):
+    """Base class for stop limit orders.
+
+    .. note::
+
+        This is a base class and should not be used directly.
+    """
+
+    def __init__(self, action, instrument, stop_price, limit_price, quantity, instrument_traits):
+        super(StopLimitOrder, self).__init__(Type.STOP_LIMIT, action, instrument, quantity, instrument_traits)
+
+        self.__stopPrice = stop_price
+        self.__limitPrice = limit_price
+
+    @property
+    def stop_price(self):
+        """Returns the stop price."""
+        return self.__stopPrice
+
+    @property
+    def limit_price(self):
+        """Returns the limit price."""
+        return self.__limitPrice
+
+
+class OrderEvent:
+    def __init__(self, order: Order, _type: Type, _info: str):
+        self.__order = order
+        self.__type = _type
+        self.__info = _info
+
+    @property
+    def info(self):
+        return self.__info
+
+    @property
+    def type(self):
+        return self.__type
+
+    @property
+    def order(self):
+        return self.__order
