@@ -7,23 +7,6 @@ from datetime import datetime
 
 import functools
 
-import six
-import abc
-
-
-@six.add_metaclass(abc.ABCMeta)
-class InstrumentTraits(object):
-
-    # Return the floating point value number rounded.
-    @abc.abstractmethod
-    def roundQuantity(self, quantity):
-        raise NotImplementedError()
-
-
-class IntegerTraits(InstrumentTraits):
-    def roundQuantity(self, quantity):
-        return int(quantity)
-
 
 class Order:
     def __init__(self, type_: Type, action: Action, instrument, quantity: float, instrument_traits):
@@ -98,6 +81,10 @@ class Order:
         return self.__executionInfo
 
     @property
+    def instrument_traits(self):
+        return self.__instrument_traits
+
+    @property
     def filled(self):
         def sum_quantity(x, y):
             return x + y.quantity
@@ -114,8 +101,7 @@ class Order:
     @property
     def total_commission(self):
         def sum_total(x, y: Execution):
-            return x + y.commission.calculate(self, y.price)
-
+            return x + y.commission
         return functools.reduce(sum_total, self.executions, 0)
 
     @property
@@ -125,6 +111,10 @@ class Order:
     @property
     def remain(self):
         return self.__instrument_traits.roundQuantity(self.quantity - self.filled)
+
+    @property
+    def id(self):
+        return self.__id
 
     def submitted(self, _id, at: datetime):
         self.__id = _id
@@ -262,20 +252,3 @@ class StopLimitOrder(Order):
         return self.__limitPrice
 
 
-class OrderEvent:
-    def __init__(self, order: Order, _type: Type, _info: str):
-        self.__order = order
-        self.__type = _type
-        self.__info = _info
-
-    @property
-    def info(self):
-        return self.__info
-
-    @property
-    def type(self):
-        return self.__type
-
-    @property
-    def order(self):
-        return self.__order

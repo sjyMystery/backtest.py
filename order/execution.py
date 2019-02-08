@@ -4,11 +4,11 @@ from order.order import Order
 
 
 class Execution:
-    def __init__(self, price: float, quantity: float, commission: Commission, dateTime: datetime):
+    def __init__(self, price: float, quantity: float, commission: float, date5ime: datetime):
         self.__price = price
         self.__quantity = quantity
         self.__commission = commission
-        self.__dateTime = dateTime
+        self.__dateTime = date5ime
 
     def __str__(self):
         return "%s - Price: %s - Amount: %s - Fee: %s" % (
@@ -32,9 +32,6 @@ class Execution:
     def commission(self):
         """Returns the commission applied."""
         return self.__commission
-
-    def calculate_commission(self, order: Order):
-        return self.commission.calculate(order, self.price, self.quantity)
 
     @property
     def datetime(self):

@@ -13,7 +13,7 @@ class MarketOrder(order.MarketOrder, BackTestingOrder):
         super(MarketOrder, self).__init__(action, instrument, quantity, on_close, instrument_traits)
 
     def process(self, broker_, bar_):
-        return broker_.getFillStrategy().fillMarketOrder(broker_, self, bar_)
+        return broker_.getFillStrategy().fill_market_order(broker_, self, bar_)
 
 
 class LimitOrder(order.LimitOrder, BackTestingOrder):
@@ -21,7 +21,7 @@ class LimitOrder(order.LimitOrder, BackTestingOrder):
         super(LimitOrder, self).__init__(action, instrument, price, quantity, instrument_traits)
 
     def process(self, broker_, bar_):
-        return broker_.getFillStrategy().fillLimitOrder(broker_, self, bar_)
+        return broker_.getFillStrategy().fill_limit_order(broker_, self, bar_)
 
 
 class StopOrder(order.StopOrder, BackTestingOrder):
@@ -30,7 +30,7 @@ class StopOrder(order.StopOrder, BackTestingOrder):
         self.__stopHit = False
 
     def process(self, broker_, bar_):
-        return broker_.getFillStrategy().fillStopOrder(broker_, self, bar_)
+        return broker_.getFillStrategy().fill_stop_order(broker_, self, bar_)
 
     @property
     def stop_hit(self):
@@ -57,4 +57,4 @@ class StopLimitOrder(order.StopLimitOrder, BackTestingOrder):
         self.__stopHit = value
 
     def process(self, broker_, bar_):
-        return broker_.getFillStrategy().fillStopLimitOrder(broker_, self, bar_)
+        return broker_.getFillStrategy().fill_stop_limit_order(broker_, self, bar_)

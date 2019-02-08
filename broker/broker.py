@@ -2,7 +2,7 @@ import abc
 import six
 from config import dispatchprio
 from event import observer
-from order import OrderEvent
+from order import OrderEvent, Action, State, Order
 
 
 ######################################################################
@@ -35,7 +35,7 @@ class Broker(observer.Subject):
         return self.__orderEvent
 
     @abc.abstractmethod
-    def instrument_traits(self, instrument):
+    def instrument_traits(self, instrument: str):
         raise NotImplementedError()
 
     @abc.abstractmethod
@@ -49,11 +49,16 @@ class Broker(observer.Subject):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def shares(self, instrument):
+    def get_shares(self, instrument: str):
         """Returns the number of shares for an instrument."""
         raise NotImplementedError()
 
     @abc.abstractmethod
+    def set_shares(self, instrument: str, quantity: float, price: str):
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    @property
     def positions(self):
         """Returns a dictionary that maps instruments to shares."""
         raise NotImplementedError()
@@ -68,11 +73,11 @@ class Broker(observer.Subject):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def submit_order(self, order):
+    def submit_order(self, order_: Order):
         """Submits an order.
 
-        :param order: The order to submit.
-        :type order: :class:`Order`.
+        :param order_: The order to submit.
+        :type order_: :class:`Order`.
 
         .. note::
             * After this call the order is in SUBMITTED state and an event is not triggered for this transition.
@@ -81,7 +86,7 @@ class Broker(observer.Subject):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def create_market_order(self, action, instrument, quantity, on_close=False):
+    def create_market_order(self, action: Action, instrument: str, quantity: float, on_close=False):
         """Creates a Market order.
         A market order is an order to buy or sell a stock at the best available price.
         Generally, this type of order will be executed immediately. However, the price at which a market order will be executed
@@ -100,7 +105,7 @@ class Broker(observer.Subject):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def create_limit_order(self, action, instrument, price, quantity):
+    def create_limit_order(self, action: Action, instrument: str, price: float, quantity: float):
         """Creates a Limit order.
         A limit order is an order to buy or sell a stock at a specific price or better.
         A buy limit order can only be executed at the limit price or lower, and a sell limit order can only be executed at the
@@ -119,7 +124,7 @@ class Broker(observer.Subject):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def create_stop_order(self, action, instrument, price, quantity):
+    def create_stop_order(self, action: Action, instrument: str, price: float, quantity: float):
         """Creates a Stop order.
         A stop order, also referred to as a stop-loss order, is an order to buy or sell a stock once the price of the stock
         reaches a specified price, known as the stop price.
@@ -142,7 +147,8 @@ class Broker(observer.Subject):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def create_stop_limit_order(self, action, instrument, stop_price, limit_price, quantity):
+    def create_stop_limit_order(self, action: Action, instrument: str, stop_price: float, limit_price: float,
+                                quantity: float):
         """Creates a Stop-Limit order.
         A stop-limit order is an order to buy or sell a stock that combines the features of a stop order and a limit order.
         Once the stop price is reached, a stop-limit order becomes a limit order that will be executed at a specified price
@@ -163,7 +169,7 @@ class Broker(observer.Subject):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def cancel_order(self, order):
+    def cancel_order(self, order: Order):
         """Requests an order to be canceled. If the order is filled an Exception is raised.
 
         :param order: The order to cancel.
