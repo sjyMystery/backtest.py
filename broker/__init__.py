@@ -1,2 +1,2 @@
 from broker.broker import Broker
-from broker.backtest import *
+import broker.backtest as backtest

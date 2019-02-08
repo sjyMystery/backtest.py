@@ -1,10 +1,11 @@
 import order
+from broker.backtest import Broker
 
 
 class BackTestingOrder:
     # Override to call the fill strategy using the concrete order type.
     # return FillInfo or None if the order should not be filled.
-    def process(self, broker_, bar_):
+    def process(self, broker_: Broker, bar_):
         raise NotImplementedError()
 
 
@@ -12,16 +13,16 @@ class MarketOrder(order.MarketOrder, BackTestingOrder):
     def __init__(self, action, instrument, quantity, on_close, instrument_traits):
         super(MarketOrder, self).__init__(action, instrument, quantity, on_close, instrument_traits)
 
-    def process(self, broker_, bar_):
-        return broker_.getFillStrategy().fill_market_order(broker_, self, bar_)
+    def process(self, broker_: Broker, bar_):
+        return broker_.fill_strategy.fill_market_order(broker_, self, bar_)
 
 
 class LimitOrder(order.LimitOrder, BackTestingOrder):
     def __init__(self, action, instrument, price, quantity, instrument_traits):
         super(LimitOrder, self).__init__(action, instrument, price, quantity, instrument_traits)
 
-    def process(self, broker_, bar_):
-        return broker_.getFillStrategy().fill_limit_order(broker_, self, bar_)
+    def process(self, broker_: Broker, bar_):
+        return broker_.fill_strategy.fill_limit_order(broker_, self, bar_)
 
 
 class StopOrder(order.StopOrder, BackTestingOrder):
@@ -29,8 +30,8 @@ class StopOrder(order.StopOrder, BackTestingOrder):
         super(StopOrder, self).__init__(action, instrument, price, quantity, instrument_traits)
         self.__stopHit = False
 
-    def process(self, broker_, bar_):
-        return broker_.getFillStrategy().fill_stop_order(broker_, self, bar_)
+    def process(self, broker_: Broker, bar_):
+        return broker_.fill_strategy.fill_stop_order(broker_, self, bar_)
 
     @property
     def stop_hit(self):
@@ -56,5 +57,5 @@ class StopLimitOrder(order.StopLimitOrder, BackTestingOrder):
     def stop_hit(self, value):
         self.__stopHit = value
 
-    def process(self, broker_, bar_):
-        return broker_.getFillStrategy().fill_stop_limit_order(broker_, self, bar_)
+    def process(self, broker_: Broker, bar_):
+        return broker_.fill_strategy.fill_stop_limit_order(broker_, self, bar_)

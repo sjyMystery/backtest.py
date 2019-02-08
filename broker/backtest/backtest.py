@@ -24,7 +24,7 @@ class Broker(broker.Broker):
     LOGGER_NAME = "broker.backtesting"
 
     def __init__(self, cash, bar_feed, commission: Commission = None):
-        super(Broker, self).__init__()
+        super(Broker, self).__init__(cash, bar_feed=bar_feed, commission=commission)
 
         assert (cash >= 0)
         self.__cash = cash
@@ -40,7 +40,7 @@ class Broker(broker.Broker):
         self.__logger = logger.get_logger(Broker.LOGGER_NAME)
 
         # It is VERY important that the broker subscribes to barfeed events before the strategy.
-        bar_feed.getNewValuesEvent().subscribe(self.onBars)
+        bar_feed.getNewValuesEvent().subscribe(self.on_bars)
 
         self.__barFeed = bar_feed
         self.__nextOrderId = 1
@@ -78,7 +78,7 @@ class Broker(broker.Broker):
             bars = self.__barFeed.getCurrentBars()
             for instrument, shares in six.iteritems(self.__shares):
                 if shares < 0:
-                    instrument_price = self._getBar(bars, instrument).getPrice()
+                    instrument_price = self._getBar(bars, instrument).price
                     ret += instrument_price * shares
         return ret
 
@@ -123,7 +123,7 @@ class Broker(broker.Broker):
         if instrument is None:
             ret = list(self.__activeOrders.values())
         else:
-            ret = [order for order in self.__activeOrders.values() if order.getInstrument() == instrument]
+            ret = [order_ for order_ in self.__activeOrders.values() if order_.instrument == instrument]
         return ret
 
     @property
@@ -163,7 +163,7 @@ class Broker(broker.Broker):
         # Try gettting the price from the last bar first.
         last_bar = self.__barFeed.getLastBar(instrument)
         if last_bar is not None:
-            ret = last_bar.getPrice()
+            ret = last_bar.price
         else:
             # Try using the instrument price set by setShares if its available.
             ret = self.__instrumentPrice.get(instrument)
@@ -176,7 +176,7 @@ class Broker(broker.Broker):
 
         ret = self.cash()
         for instrument, shares in six.iteritems(self.__shares):
-            instrument_price = self._getPriceForInstrument(instrument)
+            instrument_price = self._get_price_for_instrument(instrument)
             assert instrument_price is not None, "Price for %s is missing" % instrument
             ret += instrument_price * shares
         return ret
@@ -221,7 +221,7 @@ class Broker(broker.Broker):
                 self.__shares[order_.instrument] = updated_shares
 
             # Let the strategy know that the order was filled.
-            self.__fillStrategy.onOrderFilled(self, order)
+            self.__fillStrategy.on_order_filled(self, order_)
 
             # Notify the order update
             if order_.is_filled:
@@ -253,7 +253,7 @@ class Broker(broker.Broker):
         # For non-GTC orders we need to check if the order has expired.
         if not order_.good_till_canceled:
 
-            current = bar_.getDateTime()
+            current = bar_.datetime
 
             expired = current.date() > order_.accepted_at.date()
 
@@ -262,7 +262,7 @@ class Broker(broker.Broker):
                 ret = False
                 self.unregister_order(order_)
                 order_.canceled(current)
-                self.notifyOrderEvent(order.OrderEvent(order_, order.Type.CANCELED, "Expired"))
+                self.notify_order_event(order.OrderEvent(order_, order.Type.CANCELED, "Expired"))
 
         return ret
 
@@ -281,17 +281,17 @@ class Broker(broker.Broker):
                 self.notify_order_event(broker.OrderEvent(order_, order.State.CANCELLED, "Expired"))
 
     def __process_order(self, order_, bar_: Bar):
-        if not self.__preProcessOrder(order_, bar_):
+        if not self.__preprocess_order(order_, bar_):
             return
         # Double dispatch to the fill strategy using the concrete order type.
         fill_info = order_.process(self, bar_)
         if fill_info is not None:
-            self.commitOrderExecution(order_, bar_.getDateTime(), fill_info)
+            self.commit_order_execution(order_, bar_.datetime, fill_info)
 
         if order_.is_active:
-            self.__postProcessOrder(order, bar_)
+            self.__postprocess_order(order_, bar_)
 
-    def __on_bars_impl(self, order_: Order, bars: Bars):
+    def __on_bars_impl(self, order_, bars: Bars):
         # IF WE'RE DEALING WITH MULTIPLE INSTRUMENTS WE SKIP ORDER PROCESSING IF THERE IS NO BAR FOR THE ORDER'S
         # INSTRUMENT TO GET THE SAME BEHAVIOUR AS IF WERE BE PROCESSING ONLY ONE INSTRUMENT.
         bar_ = bars.bar(order_.instrument)
@@ -299,18 +299,18 @@ class Broker(broker.Broker):
             # Switch from SUBMITTED -> ACCEPTED
             if order_.is_submitted:
                 order_.accepted(bar_.datetime)
-                self.notifyOrderEvent(broker.OrderEvent(order_, order.State.ACCEPTED, None))
+                self.notify_order_event(broker.OrderEvent(order_, order.State.ACCEPTED, None))
 
             if order_.is_active:
                 # This may trigger orders to be added/removed from __activeOrders.
-                self.__processOrder(order_, bar_)
+                self.__process_order(order_, bar_)
             else:
                 # If an order is not active it should be because it was canceled in this same loop and it should
                 # have been removed.
                 assert order_.is_canceled
                 assert order_ not in self.__activeOrders
 
-    def on_bars(self, datetime, bars):
+    def on_bars(self, datetime_, bars):
         # Let the fill strategy know that new bars are being processed.
         self.__fillStrategy.on_bars(self, bars)
 
@@ -373,6 +373,6 @@ class Broker(broker.Broker):
 
         self.unregister_order(active_order)
         active_order.switchState(order.State.CANCELED)
-        self.notifyOrderEvent(
+        self.notify_order_event(
             broker.OrderEvent(active_order, order.State.CANCELED, "User requested cancellation")
         )
