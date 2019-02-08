@@ -10,64 +10,49 @@ import broker.backtest.backtest as backtest
 
 
 # Returns the trigger price for a Limit or StopLimit order, or None if the limit price was not yet penetrated.
-def get_limit_price_trigger(action: Action, price: float, use_adjusted_values, bar: Bar):
+def get_limit_price_trigger(action: Action, price: float, bar1: Bar, bar2: Bar):
+    """
+        以最稳健的方式保证除入场
+    :param action:
+    :param price:
+    :param bar1:
+    :param bar2:
+    :return:
+    """
     ret = None
-    open_ = bar.open(use_adjusted_values)
-    high = bar.high(use_adjusted_values)
-    low = bar.low(use_adjusted_values)
-
-    # If the bar is below the limit price, use the open price.
-    # If the bar includes the limit price, use the open price or the limit price.
     if action in [Action.BUY, Action.BUY_TO_COVER]:
-        if high < price:
-            ret = open_
-        elif price >= low:
-            if open_ < price:  # The limit price was penetrated on open.
-                ret = open_
-            else:
-                ret = price
-    # If the bar is above the limit price, use the open price.
-    # If the bar includes the limit price, use the open price or the limit price.
+        if bar1.ask_close > price >= bar2.ask_low:
+            return price
+
     elif action in [Action.SELL, Action.SELL_SHORT]:
-        if low > price:
-            ret = open_
-        elif price <= high:
-            if open_ > price:  # The limit price was penetrated on open.
-                ret = open_
-            else:
-                ret = price
+        if bar1.bid_close < price <= bar2.bid_high:
+            return price
+
     else:  # Unknown action
         assert False
     return ret
 
 
 # Returns the trigger price for a Stop or StopLimit order, or None if the stop price was not yet penetrated.
-def get_stop_price_trigger(action: Action, price: float, use_adjusted_values, bar: Bar):
+def get_stop_price_trigger(action: Action, price: float, bar1: Bar, bar2: Bar):
     ret = None
-    open_ = bar.open(use_adjusted_values)
-    high = bar.high(use_adjusted_values)
-    low = bar.low(use_adjusted_values)
 
     # If the bar is above the stop price, use the open price.
     # If the bar includes the stop price, use the open price or the stop price. Whichever is better.
     if action in [Action.BUY, Action.BUY_TO_COVER]:
-        if low > price:
-            ret = open_
-        elif price <= high:
-            if open_ > price:  # The stop price was penetrated on open.
-                ret = open_
-            else:
-                ret = price
+        if bar1.ask_close < price:
+            if bar2.ask_low > price:
+                ret = bar2.ask_open
+            elif price <= bar2.ask_high:
+                return min(bar2.ask_open, price)
     # If the bar is below the stop price, use the open price.
     # If the bar includes the stop price, use the open price or the stop price. Whichever is better.
     elif action in [Action.SELL, Action.SELL_SHORT]:
-        if high < price:
-            ret = open_
-        elif price >= low:
-            if open_ < price:  # The stop price was penetrated on open.
-                ret = open_
-            else:
-                ret = price
+        if bar1.bid_close > price:
+            if bar2.bid_high < price:
+                ret = bar2.bid_open
+            elif price >= bar2.bid_low:
+                return max(bar2.bid_open, price)
     else:  # Unknown action
         assert False
 
@@ -99,19 +84,19 @@ class FillStrategy(object):
         pass
 
     @abc.abstractmethod
-    def fill_market_order(self, broker_: Broker, order_: Order, bar_: Bar):
+    def fill_market_order(self, broker_: Broker, order_: Order, bar1: Bar, bar2: Bar):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def fill_limit_order(self, broker_: Broker, order_: Order, bar_: Bar):
+    def fill_limit_order(self, broker_: Broker, order_: Order, bar1: Bar, bar2: Bar):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def fill_stop_order(self, broker_: Broker, order_: Order, bar: Bar):
+    def fill_stop_order(self, broker_: Broker, order_: Order, bar1: Bar, bar2: Bar):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def fill_stop_limit_order(self, broker_: Broker, order: Order, bar: Bar):
+    def fill_stop_limit_order(self, broker_: Broker, order: Order, bar1: Bar, bar2: Bar):
         raise NotImplementedError()
 
 
@@ -161,20 +146,21 @@ class DefaultStrategy(FillStrategy):
         self.__slippageModel = slippage.NoSlippage()
 
     def on_bars(self, broker_: Broker, bars: Bars):
-        volume_left = {}
-
-        for instrument in bars.instruments:
-            bar = bars[instrument]
-            # Reset the volume available for each instrument.
-            if bar.frequency == Frequency.TRADE:
-                volume_left[instrument] = bar.volume
-            elif self.__volumeLimit is not None:
-                # We can't round here because there is no order to request the instrument traits.
-                volume_left[instrument] = bar.volume * self.__volumeLimit
-            # Reset the volume used for each instrument.
-            self.__volumeUsed[instrument] = 0.0
-
-        self.__volumeLeft = volume_left
+        pass
+        # volume_left = {}
+        #
+        # for instrument in bars2.instruments:
+        #     bar = bars2[instrument]
+        #     # Reset the volume available for each instrument.
+        #     if bar.frequency == Frequency.TRADE:
+        #         volume_left[instrument] = bar.volume
+        #     elif self.__volumeLimit is not None:
+        #         # We can't round here because there is no order to request the instrument traits.
+        #         volume_left[instrument] = bar.volume * self.__volumeLimit
+        #     # Reset the volume used for each instrument.
+        #     self.__volumeUsed[instrument] = 0.0
+        #
+        # self.__volumeLeft = volume_left
 
     @property
     def volume_left(self):
@@ -185,21 +171,22 @@ class DefaultStrategy(FillStrategy):
         return self.__volumeUsed
 
     def on_order_filled(self, broker_: Broker, order_: Order):
-        # Update the volume left.
-        if self.__volumeLimit is not None:
-            # We round the volume left here because it was not rounded when it was initialized.
-            volume_left = order_.instrument_traits.roundQuantity(self.__volumeLeft[order_.instrument])
-            fill_quantity = order_.filled
-            assert volume_left >= fill_quantity, \
-                "Invalid fill quantity %s. Not enough volume left %s" % (fill_quantity, volume_left)
-            self.__volumeLeft[order_.instrument] = order_.instrument_traits.roundQuantity(
-                volume_left - fill_quantity
-            )
-
-        # Update the volume used.
-        self.__volumeUsed[order_.instrument] = order_.instrument_traits.roundQuantity(
-            self.__volumeUsed[order_.instrument] + order_.quantity
-        )
+        pass
+        #  Update the volume left.
+        # if self.__volumeLimit is not None:
+        #     # We round the volume left here because it was not rounded when it was initialized.
+        #     volume_left = order_.instrument_traits.roundQuantity(self.__volumeLeft[order_.instrument])
+        #     fill_quantity = order_.filled
+        #     assert volume_left >= fill_quantity, \
+        #         "Invalid fill quantity %s. Not enough volume left %s" % (fill_quantity, volume_left)
+        #     self.__volumeLeft[order_.instrument] = order_.instrument_traits.roundQuantity(
+        #         volume_left - fill_quantity
+        #     )
+        #
+        # # Update the volume used.
+        # self.__volumeUsed[order_.instrument] = order_.instrument_traits.roundQuantity(
+        #     self.__volumeUsed[order_.instrument] + order_.quantity
+        # )
 
     @property
     def volume_limit(self):
@@ -220,26 +207,24 @@ class DefaultStrategy(FillStrategy):
 
         self.__volumeLimit = value
 
-    def __calculate_fill_size(self, broker_: Broker, order: Order, bar: Bar):
-        ret = 0
+    def __calculate_fill_size(self, broker_: Broker, order: Order, bar1: Bar, bar2: Bar):
+        # # If self.__volumeLimit is None then allow all the order to get filled.
+        # if self.__volumeLimit is not None:
+        #     max_volume = self.__volumeLeft.get(order.instrument, 0)
+        #     max_volume = order.instrument_traits.roundQuantity(max_volume)
+        # else:
+        #     max_volume = order.remain
+        #
+        # if not order.all_or_one:
+        #     ret = min(max_volume, order.remain)
+        # elif order.remain <= max_volume:
+        #     ret = order.remain
 
-        # If self.__volumeLimit is None then allow all the order to get filled.
-        if self.__volumeLimit is not None:
-            max_volume = self.__volumeLeft.get(order.instrument, 0)
-            max_volume = order.instrument_traits.roundQuantity(max_volume)
-        else:
-            max_volume = order.remain
+        return order.remain
 
-        if not order.all_or_one:
-            ret = min(max_volume, order.remain)
-        elif order.remain <= max_volume:
-            ret = order.remain
-
-        return ret
-
-    def fill_market_order(self, broker_: Broker, order: MarketOrder, bar: Bar):
+    def fill_market_order(self, broker_: Broker, order: MarketOrder, bar1: Bar, bar2: Bar):
         # Calculate the fill size for the order.
-        fill_size = self.__calculate_fill_size(broker_, order, bar)
+        fill_size = self.__calculate_fill_size(broker_, order, bar1, bar2)
         if fill_size == 0:
             broker_.logger.debug(
                 "Not enough volume to fill %s market order [%s] for %s share/s" % (
@@ -252,32 +237,26 @@ class DefaultStrategy(FillStrategy):
 
         # Unless its a fill-on-close order, use the open price.
         if order.fill_on_close:
-            price = bar.close(broker_.use_adjusted_values)
+            price = bar2.ask_close if order.is_buy else bar2.bid_close
         else:
-            price = bar.open(broker_.use_adjusted_values)
+            price = bar2.ask_open if order.is_buy else bar2.bid_open
         assert price is not None
-
-        # Don't slip prices when the bar represents the trading activity of a single trade.
-        if bar.frequency != Frequency.TRADE:
-            price = self.__slippageModel.calculate_price(
-                order, price, fill_size, bar, self.__volumeUsed[order.instrument]
-            )
         return FillInfo(price, fill_size)
 
-    def fill_limit_order(self, broker_: Broker, order_: LimitOrder, bar: Bar):
+    def fill_limit_order(self, broker_: Broker, order_: LimitOrder, bar1: Bar, bar2: Bar):
         # Calculate the fill size for the order.
-        fill_size = self.__calculate_fill_size(broker_, order_, bar)
+        fill_size = self.__calculate_fill_size(broker_, order_, bar1, bar2)
         if fill_size == 0:
             broker_.logger.debug("Not enough volume to fill %s limit order [%s] for %s share/s" % (
                 order_.instrument, order_.id, order_.remain))
             return None
         ret = None
-        price = get_limit_price_trigger(order_.action, order_.price, broker_.use_adjusted_values, bar)
+        price = get_limit_price_trigger(order_.action, order_.price, bar1, bar2)
         if price is not None:
             ret = FillInfo(price, fill_size)
         return ret
 
-    def fill_stop_order(self, broker_: Broker, order_: StopOrder, bar: Bar):
+    def fill_stop_order(self, broker_: Broker, order_: StopOrder, bar1: Bar, bar2: Bar):
         ret = None
         # First check if the stop price was hit so the market order becomes active.
         price_trigger = None
@@ -285,15 +264,15 @@ class DefaultStrategy(FillStrategy):
             price_trigger = get_stop_price_trigger(
                 order_.action,
                 order_.price,
-                broker_.use_adjusted_values,
-                bar
+                bar1,
+                bar2
             )
             order_.stop_hit = (price_trigger is not None)
 
         # If the stop price was hit, check if we can fill the market order.
         if order_.stop_hit:
             # Calculate the fill size for the order.
-            fill_size = self.__calculate_fill_size(broker_, order_, bar)
+            fill_size = self.__calculate_fill_size(broker_, order_, bar1, bar2)
             if fill_size == 0:
                 broker_.logger.debug("Not enough volume to fill %s stop order [%s] for %s share/s" % (
                     order_.instrument,
@@ -307,18 +286,13 @@ class DefaultStrategy(FillStrategy):
             if price_trigger is not None:
                 price = price_trigger
             else:
-                price = bar.open(broker_.use_adjusted_values)
+                price = bar2.ask_open if order_.is_buy else bar2.bid_open
             assert price is not None
 
-            # Don't slip prices when the bar represents the trading activity of a single trade.
-            if bar.frequency != Frequency.TRADE:
-                price = self.__slippageModel.calculate_price(
-                    order_, price, fill_size, bar, self.__volumeUsed[order_.instrument]
-                )
             ret = FillInfo(price, fill_size)
         return ret
 
-    def fill_stop_limit_order(self, broker_: Broker, order: StopLimitOrder, bar: Bar):
+    def fill_stop_limit_order(self, broker_: Broker, order: StopLimitOrder, bar1: Bar, bar2: Bar):
         ret = None
 
         # First check if the stop price was hit so the limit order becomes active.
@@ -327,15 +301,15 @@ class DefaultStrategy(FillStrategy):
             price_trigger = get_stop_price_trigger(
                 order.action,
                 order.stop_price,
-                broker_.use_adjusted_values,
-                bar
+                bar1,
+                bar2
             )
             order.stop_hit = (price_trigger is not None)
 
         # If the stop price was hit, check if we can fill the limit order.
         if order.stop_hit:
             # Calculate the fill size for the order.
-            fill_size = self.__calculate_fill_size(broker_, order, bar)
+            fill_size = self.__calculate_fill_size(broker_, order, bar1, bar2)
             if fill_size == 0:
                 broker_.logger.debug("Not enough volume to fill %s stop limit order [%s] for %s share/s" % (
                     order.instrument,
@@ -347,8 +321,8 @@ class DefaultStrategy(FillStrategy):
             price = get_limit_price_trigger(
                 order.action,
                 order.limit_price,
-                broker_.use_adjusted_values,
-                bar
+                bar1,
+                bar2
             )
             if price is not None:
                 # If we just hit the stop price, we need to make additional checks.

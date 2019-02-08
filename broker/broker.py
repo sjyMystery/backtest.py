@@ -4,6 +4,8 @@ from config import dispatchprio
 from event import observer
 from order import OrderEvent, Action, State, Order
 
+from datetime import datetime
+
 
 ######################################################################
 # Base broker class
@@ -169,7 +171,7 @@ class Broker(observer.Subject):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def cancel_order(self, order: Order):
+    def cancel_order(self, order: Order, cancel_date: datetime):
         """Requests an order to be canceled. If the order is filled an Exception is raised.
 
         :param order: The order to cancel.

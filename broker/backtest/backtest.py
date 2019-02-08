@@ -35,7 +35,7 @@ class Broker(broker.Broker):
         self.__shares = {}
         self.__instrumentPrice = {}  # Used by setShares
         self.__activeOrders = {}
-        self.__useAdjustedValues = False
+        self.__current_time = None
         self.__fillStrategy = DefaultStrategy()
         self.__logger = logger.get_logger(Broker.LOGGER_NAME)
 
@@ -107,17 +107,6 @@ class Broker(broker.Broker):
     @fill_strategy.setter
     def fill_strategy(self, strategy):
         self.__fillStrategy = strategy
-
-    @property
-    def use_adjusted_values(self):
-        return self.__useAdjustedValues
-
-    @use_adjusted_values.setter
-    def use_adjusted_values(self, use_adjusted):
-        # Deprecated since v0.15
-        if not self.__barFeed.barsHaveAdjClose():
-            raise Exception("The barfeed doesn't support adjusted close values")
-        self.__useAdjustedValues = use_adjusted
 
     def active_orders(self, instrument=None):
         if instrument is None:
@@ -226,9 +215,9 @@ class Broker(broker.Broker):
             # Notify the order update
             if order_.is_filled:
                 self.unregister_order(order_)
-                self.notify_order_event(order.OrderEvent(order_, order.State.FILLED, execution))
+                self.notify_order_event(OrderEvent(order_, order.State.FILLED, execution))
             elif order_.is_partially_filled:
-                self.notify_order_event(order.OrderEvent(order_, order.State.PARTIALLY_FILLED, execution))
+                self.notify_order_event(OrderEvent(order_, order.State.PARTIALLY_FILLED, execution))
             else:
                 assert False
         else:
@@ -242,7 +231,7 @@ class Broker(broker.Broker):
         if order_.is_initial:
             order_.submitted(self.next_order_id, self.current_datetime)
             self.register_order(order_)
-            self.notify_order_event(order.OrderEvent(order_, order.State.SUBMITTED, None))
+            self.notify_order_event(OrderEvent(order_, order.State.SUBMITTED, None))
         else:
             raise Exception("The order was already processed")
 
@@ -253,7 +242,7 @@ class Broker(broker.Broker):
         # For non-GTC orders we need to check if the order has expired.
         if not order_.good_till_canceled:
 
-            current = bar_.datetime
+            current = bar_.start_date
 
             expired = current.date() > order_.accepted_at.date()
 
@@ -262,65 +251,69 @@ class Broker(broker.Broker):
                 ret = False
                 self.unregister_order(order_)
                 order_.canceled(current)
-                self.notify_order_event(order.OrderEvent(order_, order.Type.CANCELED, "Expired"))
+                self.notify_order_event(OrderEvent(order_, order.Type.CANCELED, "Expired"))
 
         return ret
 
-    def __postprocess_order(self, order_: Order, bar_: bar.Bar):
+    def __postprocess_order(self, order_: Order, bar_: Bar):
         # For non-GTC orders and daily (or greater) bars we need to check if orders should expire right now
         # before waiting for the next bar.
         if not order_.good_till_canceled:
             expired = False
             if self.__barFeed.getFrequency() >= bar.Frequency.DAY:
-                expired = bar_.datetime.date() >= order_.accepted_at.date()
+                expired = bar_.start_date.date() >= order_.accepted_at.date()
 
             # Cancel the order if it will expire in the next bar.
             if expired:
                 self.unregister_order(order_)
-                order_.canceled(bar_.datetime)
-                self.notify_order_event(broker.OrderEvent(order_, order.State.CANCELLED, "Expired"))
+                order_.canceled(bar_.start_date)
+                self.notify_order_event(OrderEvent(order_, order.State.CANCELLED, "Expired"))
 
-    def __process_order(self, order_, bar_: Bar):
-        if not self.__preprocess_order(order_, bar_):
+    def __process_order(self, order_, bar1: Bar, bar2: Bar):
+        if not self.__preprocess_order(order_, bar2):
             return
         # Double dispatch to the fill strategy using the concrete order type.
-        fill_info = order_.process(self, bar_)
+        fill_info = order_.process(self, bar1, bar2)
         if fill_info is not None:
-            self.commit_order_execution(order_, bar_.datetime, fill_info)
+            self.commit_order_execution(order_, bar2.start_date, fill_info)
 
         if order_.is_active:
-            self.__postprocess_order(order_, bar_)
+            self.__postprocess_order(order_, bar2)
 
-    def __on_bars_impl(self, order_, bars: Bars):
+    def __on_bars_impl(self, order_, bars1: Bars, bars2: Bars):
         # IF WE'RE DEALING WITH MULTIPLE INSTRUMENTS WE SKIP ORDER PROCESSING IF THERE IS NO BAR FOR THE ORDER'S
         # INSTRUMENT TO GET THE SAME BEHAVIOUR AS IF WERE BE PROCESSING ONLY ONE INSTRUMENT.
-        bar_ = bars.bar(order_.instrument)
-        if bar_ is not None:
+        bar1 = bars1.bar(order_.instrument)
+        bar2 = bars2.bar(order_.instrument)
+        if bar1 is not None and bar2 is not None:
             # Switch from SUBMITTED -> ACCEPTED
             if order_.is_submitted:
-                order_.accepted(bar_.datetime)
-                self.notify_order_event(broker.OrderEvent(order_, order.State.ACCEPTED, None))
+                order_.accepted(bar2.start_date)
+                self.notify_order_event(
+                    OrderEvent(order_, order.State.ACCEPTED, None))
 
             if order_.is_active:
                 # This may trigger orders to be added/removed from __activeOrders.
-                self.__process_order(order_, bar_)
+                self.__process_order(order_, bar1, bar2)
             else:
                 # If an order is not active it should be because it was canceled in this same loop and it should
                 # have been removed.
                 assert order_.is_canceled
                 assert order_ not in self.__activeOrders
 
-    def on_bars(self, datetime_, bars):
+    def on_bars(self, datetime_, bars1: Bars, bars2: Bars):
         # Let the fill strategy know that new bars are being processed.
-        self.__fillStrategy.on_bars(self, bars)
+        self.__fillStrategy.on_bars(self, bars2)
 
         # This is to froze the orders that will be processed in this event, to avoid new getting orders introduced
         # and processed on this very same event.
         orders_to_process = list(self.__activeOrders.values())
 
+        self.__current_time = datetime_
+
         for order_ in orders_to_process:
             # This may trigger orders to be added/removed from __activeOrders.
-            self.__on_bars_impl(order_, bars)
+            self.__on_bars_impl(order_, bars1, bars2)
 
     def start(self):
         super(Broker, self).start()
@@ -364,15 +357,19 @@ class Broker(broker.Broker):
                                 quantity: float):
         return StopLimitOrder(action, instrument, stop_price, limit_price, quantity, self.instrument_traits(instrument))
 
-    def cancel_order(self, order_: Order):
+    def cancel_order(self, order_: Order, cancel_date: datetime = None):
         active_order = self.__activeOrders.get(order_.id)
         if active_order is None:
             raise Exception("The order is not active anymore")
-        if active_order.isFilled():
+        if active_order.is_filled:
             raise Exception("Can't cancel order that has already been filled")
 
         self.unregister_order(active_order)
-        active_order.switchState(order.State.CANCELED)
+        active_order.canceled((cancel_date if cancel_date is not None else self.__current_time))
         self.notify_order_event(
-            broker.OrderEvent(active_order, order.State.CANCELED, "User requested cancellation")
+            OrderEvent(active_order, order.State.CANCELED, "User requested cancellation")
         )
+
+    @property
+    def now(self):
+        return self.__current_time
